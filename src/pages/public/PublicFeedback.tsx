@@ -29,9 +29,10 @@ export function PublicFeedback() {
   const navigate = useNavigate();
   const event = useAppStore((s) => s.getEvent(eventId!));
   const regs = useAppStore((s) => s.getEventRegistrations(eventId!));
+  const feedbacks = useAppStore((s) => s.getEventFeedbacks(eventId!));
   const addFeedback = useAppStore((s) => s.addFeedback);
 
-  const [step, setStep] = useState<'verify' | 'form' | 'success'>('verify');
+  const [step, setStep] = useState<'verify' | 'form' | 'success' | 'duplicate'>('verify');
   const [phone, setPhone] = useState('');
   const [verifyErr, setVerifyErr] = useState('');
 
@@ -46,6 +47,13 @@ export function PublicFeedback() {
     () => regs.find((r) => r.customFields.phone?.replace(/\D/g, '') === phone.replace(/\D/g, '')),
     [regs, phone]
   );
+
+  const alreadySubmitted = useMemo(() => {
+    if (!matched) return false;
+    return feedbacks.some(
+      (f) => f.registrationId === matched.id || f.participantId === matched.participantId
+    );
+  }, [feedbacks, matched]);
 
   if (!event) {
     return (
@@ -75,6 +83,13 @@ export function PublicFeedback() {
       setVerifyErr('您尚未完成现场签到，无法提交本次反馈');
       return;
     }
+    const existed = feedbacks.some(
+      (f) => f.registrationId === m.id || f.participantId === m.participantId
+    );
+    if (existed) {
+      setStep('duplicate');
+      return;
+    }
     setStep('form');
   };
 
@@ -90,7 +105,7 @@ export function PublicFeedback() {
     const clean = phone.replace(/\D/g, '');
     const m = regs.find((r) => r.customFields.phone?.replace(/\D/g, '') === clean);
     if (!m) return;
-    addFeedback({
+    const res = addFeedback({
       eventId: event.id,
       participantId: m.participantId,
       registrationId: m.id,
@@ -100,7 +115,15 @@ export function PublicFeedback() {
       tags,
       wouldRecommend: wouldRecommend ?? undefined,
     });
-    setStep('success');
+    if (res.duplicate) {
+      setStep('duplicate');
+      return;
+    }
+    if (res.success) {
+      setStep('success');
+    } else {
+      alert(res.message);
+    }
   };
 
   return (
@@ -296,7 +319,23 @@ export function PublicFeedback() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <button onClick={() => navigate('/events')} className="btn-secondary">返回活动列表</button>
-              <button onClick={() => window.location.reload()} className="btn-primary">再次提交</button>
+            </div>
+          </div>
+        )}
+
+        {step === 'duplicate' && (
+          <div className="bg-white rounded-2xl shadow-lift border border-paper-200 overflow-hidden p-10 text-center">
+            <div className="w-20 h-20 mx-auto rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mb-6">
+              <MessageSquare className="w-10 h-10 text-amber-500" />
+            </div>
+            <h2 className="font-serif text-3xl font-semibold text-espresso-800 mb-3">您已提交过反馈</h2>
+            <p className="text-espresso-500 mb-8 leading-relaxed max-w-md mx-auto">
+              同一场读书会每人仅可提交一次反馈。<br />
+              您的意见已经收到，我们会认真阅读每一条内容。
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button onClick={() => navigate('/events')} className="btn-secondary">返回活动列表</button>
+              <button onClick={() => { setStep('verify'); setPhone(''); setVerifyErr(''); }} className="btn-primary">更换手机号</button>
             </div>
           </div>
         )}

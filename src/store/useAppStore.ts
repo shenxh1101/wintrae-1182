@@ -56,7 +56,7 @@ interface AppState {
   bulkSetRegistrationTags?: any;
 
   checkIn: (eventId: string, identifier: string, method: CheckInMethod) => { success: boolean; participant?: Participant; message: string };
-  manualCheckIn: (registrationId: string, method?: CheckInMethod, codeUsed?: string) => boolean;
+  manualCheckIn: (registrationId: string, method?: CheckInMethod, codeUsed?: string) => { success: boolean; participant?: Participant; message: string };
   walkInCheckIn: (eventId: string, data: { name: string; phone: string; [k: string]: string }) => CheckInRecord | null;
 
   createNotification: (data: Partial<Notification>) => string;
@@ -78,7 +78,7 @@ interface AppState {
     tags?: string[];
     suggestions?: string;
     wouldRecommend?: boolean;
-  }) => void;
+  }) => { success: boolean; duplicate?: boolean; message: string };
 }
 
 const STORAGE_KEY = 'book-club-store-v1';
@@ -375,12 +375,17 @@ export const useAppStore = create<AppState>()(
         if (!reg || reg.status !== 'waitlist') return;
         const ev = get().getEvent(reg.eventId);
         if (!ev || ev.currentConfirmed >= ev.maxCapacity) return;
+        const promotedPosition = reg.waitlistPosition;
         set({
-          registrations: get().registrations.map((r) =>
-            r.id === regId
-              ? { ...r, status: 'confirmed', waitlistPosition: undefined, promotedFromWaitlistAt: new Date().toISOString() }
-              : r
-          ),
+          registrations: get().registrations.map((r) => {
+            if (r.id === regId) {
+              return { ...r, status: 'confirmed' as const, waitlistPosition: undefined, promotedFromWaitlistAt: new Date().toISOString() };
+            }
+            if (r.eventId === reg.eventId && r.status === 'waitlist' && r.waitlistPosition && promotedPosition && r.waitlistPosition > promotedPosition) {
+              return { ...r, waitlistPosition: r.waitlistPosition - 1 };
+            }
+            return r;
+          }),
           events: get().events.map((e) =>
             e.id === reg.eventId
               ? { ...e, currentConfirmed: e.currentConfirmed + 1, currentWaitlist: e.currentWaitlist - 1 }
@@ -451,11 +456,14 @@ export const useAppStore = create<AppState>()(
         };
       },
 
-      manualCheckIn: (registrationId, method = 'manual', codeUsed?: string) => {
+      manualCheckIn: (registrationId, method = 'manual' as CheckInMethod, codeUsed?: string) => {
         const reg = get().registrations.find((r) => r.id === registrationId);
-        if (!reg) return false;
+        if (!reg) return { success: false, message: '报名记录不存在' };
+        const participant = get().getParticipant(reg.participantId);
+        if (reg.status === 'cancelled') return { success: false, participant, message: '该报名已取消，无法签到' };
+        if (reg.status === 'waitlist') return { success: false, participant, message: '仍处于候补队列，补位成功后方可签到' };
         const existing = get().checkIns.find((c) => c.registrationId === registrationId);
-        if (existing) return false;
+        if (existing) return { success: false, participant, message: participant ? `${participant.name}已签到，请勿重复操作` : '该用户已签到' };
         const record: CheckInRecord = {
           id: 'c_' + uid(),
           registrationId,
@@ -468,13 +476,13 @@ export const useAppStore = create<AppState>()(
         set({
           checkIns: [...get().checkIns, record],
           registrations: get().registrations.map((r) =>
-            r.id === registrationId ? { ...r, status: 'checked_in' } : r
+            r.id === registrationId ? { ...r, status: 'checked_in' as const } : r
           ),
           participants: get().participants.map((p) =>
             p.id === reg.participantId ? { ...p, totalCheckIns: p.totalCheckIns + 1 } : p
           ),
         });
-        return true;
+        return { success: true, participant, message: participant ? `欢迎 ${participant.name}，签到成功！` : '签到成功' };
       },
 
       walkInCheckIn: (eventId, data) => {
@@ -633,6 +641,14 @@ export const useAppStore = create<AppState>()(
       },
 
       addFeedback: (data) => {
+        const existing = get().feedbacks.find(
+          (f) =>
+            (data.registrationId && f.registrationId === data.registrationId) ||
+            (f.eventId === data.eventId && f.participantId === data.participantId)
+        );
+        if (existing) {
+          return { success: false, duplicate: true, message: '您已提交过本次活动的反馈' };
+        }
         set({
           feedbacks: [
             ...get().feedbacks,
@@ -651,6 +667,7 @@ export const useAppStore = create<AppState>()(
             },
           ],
         });
+        return { success: true, duplicate: false, message: '反馈提交成功，感谢您的宝贵意见' };
       },
     }),
     {

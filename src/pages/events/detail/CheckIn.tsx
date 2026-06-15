@@ -79,7 +79,7 @@ export function CheckIn() {
   };
 
   const pendingList = useMemo(() => {
-    let list = regs.filter((r) => r.status !== 'cancelled' && r.status !== 'checked_in');
+    let list = regs.filter((r) => r.status !== 'cancelled' && r.status !== 'checked_in' && r.status !== 'no_show');
     if (search.trim()) {
       const s = search.trim().toLowerCase();
       list = list.filter((r) => {
@@ -88,7 +88,7 @@ export function CheckIn() {
       });
     }
     return list.sort((a, b) => {
-      const order: Record<string, number> = { confirmed: 0, waitlist: 1, pending: 2, no_show: 3 };
+      const order: Record<string, number> = { confirmed: 0, waitlist: 1, pending: 2 };
       return (order[a.status] || 0) - (order[b.status] || 0);
     });
   }, [regs, search, getParticipant]);
@@ -221,17 +221,32 @@ export function CheckIn() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[420px] overflow-y-auto scroll-area pr-2">
                   {pendingList.map((r) => {
                     const p = getParticipant(r.participantId);
+                    const isWaitlist = r.status === 'waitlist';
                     return (
                       <button
                         key={r.id}
                         onClick={() => {
-                          manualCheckIn(r.id);
-                          setToast({ type: 'success', message: '签到成功！', name: p?.name });
-                          setTimeout(() => setToast(null), 2500);
+                          const res = manualCheckIn(r.id, isWaitlist ? 'manual' : 'manual');
+                          setToast({
+                            type: res.success ? 'success' : 'warning',
+                            message: res.message,
+                            name: res.participant?.name,
+                          });
+                          setTimeout(() => setToast(null), 3000);
                         }}
-                        className="group flex items-center gap-3 p-3 rounded-xl border border-paper-200 bg-white hover:bg-gradient-to-r hover:from-ink-50 hover:to-white hover:border-ink-200 hover:shadow-card transition-all text-left"
+                        className={clsx(
+                          'group flex items-center gap-3 p-3 rounded-xl border bg-white transition-all text-left',
+                          isWaitlist
+                            ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-50 cursor-not-allowed opacity-90'
+                            : 'border-paper-200 hover:bg-gradient-to-r hover:from-ink-50 hover:to-white hover:border-ink-200 hover:shadow-card'
+                        )}
                       >
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-paper-100 to-paper-200 flex items-center justify-center text-espresso-700 font-medium group-hover:from-amber-100 group-hover:to-amber-200 transition-colors">
+                        <div className={clsx(
+                          'w-10 h-10 rounded-full flex items-center justify-center font-medium transition-colors',
+                          isWaitlist
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-gradient-to-br from-paper-100 to-paper-200 text-espresso-700 group-hover:from-amber-100 group-hover:to-amber-200'
+                        )}>
                           {p?.name?.[0]}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -239,10 +254,20 @@ export function CheckIn() {
                             <p className="font-medium text-espresso-800 truncate">{p?.name}</p>
                             <RegistrationStatusBadge status={r.status} />
                           </div>
-                          <p className="text-xs text-espresso-400">{p?.phone}</p>
+                          <p className="text-xs text-espresso-400">
+                            {p?.phone}
+                            {isWaitlist && r.waitlistPosition && (
+                              <span className="ml-2 text-amber-600">· 候补 #{r.waitlistPosition}</span>
+                            )}
+                          </p>
                         </div>
-                        <div className="w-8 h-8 rounded-lg bg-paper-100 group-hover:bg-ink-700 text-espresso-300 group-hover:text-white flex items-center justify-center transition-colors">
-                          <CheckCircle2 className="w-4 h-4" />
+                        <div className={clsx(
+                          'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+                          isWaitlist
+                            ? 'bg-amber-100 text-amber-500'
+                            : 'bg-paper-100 group-hover:bg-ink-700 text-espresso-300 group-hover:text-white'
+                        )}>
+                          {isWaitlist ? <Clock className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                         </div>
                       </button>
                     );
