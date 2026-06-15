@@ -203,6 +203,7 @@ function EventCard({
   onDelete: () => void;
   quickActions: { label: string; icon: any; action: (e: BookClubEvent) => void }[];
 }) {
+  const navigate = useNavigate();
   const statusBarColor: Record<EventStatus, string> = {
     draft: 'bg-espresso-300',
     published: 'bg-ink-400',
@@ -244,7 +245,7 @@ function EventCard({
               className="absolute right-4 top-12 z-20 w-40 py-1.5 rounded-xl bg-white border border-paper-300 shadow-lift animate-slide-up"
             >
               <MenuItem icon={Eye} label="查看详情" onClick={() => onOpen(event)} />
-              <MenuItem icon={Pencil} label="编辑活动" onClick={() => onOpen(event)} />
+              <MenuItem icon={Pencil} label="编辑活动" onClick={() => navigate(`/events/${event.id}/edit`)} />
               <MenuItem icon={Copy} label="复制活动" onClick={onDuplicate} />
               <MenuItem icon={Trash2} label="删除活动" danger onClick={onDelete} />
             </div>

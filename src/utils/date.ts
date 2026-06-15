@@ -46,8 +46,8 @@ export const weekdayName = (iso: string) => {
   return names[new Date(iso).getDay()];
 };
 
-export const generateSignInCode = (eventId: string, participantId: string) => {
-  const seed = `${eventId}-${participantId}-${Date.now()}`;
+export const generateSignInCode = (eventId: string, participantId: string, salt?: number) => {
+  const seed = `${eventId}-${participantId}-${salt ?? Date.now()}`;
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;

@@ -14,6 +14,7 @@ import type {
   EventStatus,
 } from '../types';
 import { mockData, uid } from '../utils/mockData';
+import { generateSignInCode, formatTime } from '../utils/date';
 
 interface AppState {
   events: BookClubEvent[];
@@ -42,10 +43,20 @@ interface AppState {
   addRegistration: (eventId: string, participantData: Partial<Participant> & { customFields: Record<string, string> }) => Registration | null;
   updateRegistrationStatus: (regId: string, status: RegistrationStatus, reason?: string) => void;
   promoteFromWaitlist: (regId: string) => void;
+  evaluateCancelRule: (regId: string) => {
+    allowed: boolean;
+    freeCancel?: boolean;
+    feeApplied?: boolean;
+    feePercent?: number;
+    hoursToEvent?: number;
+    deadline?: number;
+    message: string;
+  };
+  cancelRegistration: (regId: string, reason?: string) => any;
   bulkSetRegistrationTags?: any;
 
   checkIn: (eventId: string, identifier: string, method: CheckInMethod) => { success: boolean; participant?: Participant; message: string };
-  manualCheckIn: (registrationId: string) => boolean;
+  manualCheckIn: (registrationId: string, method?: CheckInMethod, codeUsed?: string) => boolean;
   walkInCheckIn: (eventId: string, data: { name: string; phone: string; [k: string]: string }) => CheckInRecord | null;
 
   createNotification: (data: Partial<Notification>) => string;
@@ -57,7 +68,17 @@ interface AppState {
   addTag: (name: string, color: string) => string;
   addParticipantTags: (participantId: string, tagIds: string[]) => void;
   removeParticipantTag: (participantId: string, tagId: string) => void;
-  addFeedback: (eventId: string, participantId: string, rating: number, content: string, keywords: string[]) => void;
+  addFeedback: (data: {
+    eventId: string;
+    participantId: string;
+    registrationId?: string;
+    rating: number;
+    content?: string;
+    keywords?: string[];
+    tags?: string[];
+    suggestions?: string;
+    wouldRecommend?: boolean;
+  }) => void;
 }
 
 const STORAGE_KEY = 'book-club-store-v1';
@@ -192,6 +213,7 @@ export const useAppStore = create<AppState>()(
           participantId: participant.id,
           status,
           waitlistPosition: status === 'waitlist' ? ev.currentWaitlist + 1 : undefined,
+          signInCode: generateSignInCode(eventId, participant.id),
           customFields: participantData.customFields,
           registeredAt: now,
         };
@@ -254,6 +276,100 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      evaluateCancelRule: (regId) => {
+        const reg = get().registrations.find((r) => r.id === regId);
+        if (!reg) return { allowed: false, message: '报名记录不存在' };
+        const ev = get().getEvent(reg.eventId);
+        if (!ev) return { allowed: false, message: '活动不存在' };
+        if (reg.status === 'cancelled') return { allowed: false, message: '该报名已取消' };
+        if (reg.status === 'checked_in') return { allowed: false, message: '已签到，无法取消' };
+
+        const nowTs = Date.now();
+        const eventStartTs = new Date(ev.startTime).getTime();
+        const hoursToEvent = (eventStartTs - nowTs) / (1000 * 60 * 60);
+        const deadline = ev.cancelDeadlineHours || 0;
+
+        if (hoursToEvent <= 0) {
+          return {
+            allowed: true,
+            freeCancel: false,
+            feeApplied: true,
+            feePercent: ev.cancellationFeePercent ?? 100,
+            hoursToEvent,
+            deadline,
+            message: `活动已开始/结束，按规则将扣除${ev.cancellationFeePercent ?? 100}%费用作为违约金`,
+          };
+        }
+
+        if (hoursToEvent < deadline) {
+          return {
+            allowed: true,
+            freeCancel: false,
+            feeApplied: ev.cancellationFeePercent > 0,
+            feePercent: ev.cancellationFeePercent ?? 0,
+            hoursToEvent,
+            deadline,
+            message: `距活动开始不足${deadline}小时，按规则扣除${ev.cancellationFeePercent ?? 0}%违约金（实际${hoursToEvent.toFixed(1)}小时）`,
+          };
+        }
+
+        return {
+          allowed: true,
+          freeCancel: true,
+          feeApplied: false,
+          feePercent: 0,
+          hoursToEvent,
+          deadline,
+          message: `距活动开始还有${hoursToEvent.toFixed(1)}小时，在免费取消时限（${deadline}小时）内，可全额退款`,
+        };
+      },
+
+      cancelRegistration: (regId, reason) => {
+        const rule = get().evaluateCancelRule(regId);
+        if (!rule.allowed) return rule;
+        const reg = get().registrations.find((r) => r.id === regId)!;
+        const ev = get().getEvent(reg.eventId)!;
+        const now = new Date().toISOString();
+
+        const updates: Partial<Registration> = {
+          status: 'cancelled' as const,
+          cancelledAt: now,
+          cancelReason: reason,
+          cancelFeeApplied: rule.feeApplied,
+          cancelFeeAmount: rule.feeApplied ? (reg.registrationFee ?? 0) * (rule.feePercent / 100) : 0,
+        };
+
+        set({
+          registrations: get().registrations.map((r) => (r.id === regId ? { ...r, ...updates } : r)),
+          events: get().events.map((e) => {
+            if (e.id !== reg.eventId) return e;
+            let cc = e.currentConfirmed;
+            let cw = e.currentWaitlist;
+            if (reg.status === 'confirmed') cc--;
+            if (reg.status === 'waitlist') cw--;
+            return { ...e, currentConfirmed: cc, currentWaitlist: cw };
+          }),
+        });
+
+        if (ev.autoPromoteWaitlist && reg.status === 'confirmed') {
+          const nextWait = get()
+            .getEventRegistrations(reg.eventId)
+            .filter((r) => r.status === 'waitlist')
+            .sort((a, b) => (a.waitlistPosition || 0) - (b.waitlistPosition || 0))[0];
+          if (nextWait) {
+            setTimeout(() => get().promoteFromWaitlist(nextWait.id), 100);
+          }
+        }
+
+        return {
+          ...rule,
+          applied: true,
+          message: rule.feeApplied
+            ? `取消成功，扣除${rule.feePercent}%违约金：已按${rule.message}`
+            : `取消成功，${rule.message}`,
+        };
+      },
+
       promoteFromWaitlist: (regId) => {
         const reg = get().registrations.find((r) => r.id === regId);
         if (!reg || reg.status !== 'waitlist') return;
@@ -278,28 +394,64 @@ export const useAppStore = create<AppState>()(
         const ev = get().getEvent(eventId);
         if (!ev) return { success: false, message: '活动不存在' };
         const regs = get().getEventRegistrations(eventId);
-        const participant = get().participants.find(
-          (p) => p.phone === identifier || p.phone === phone || p.name === identifier || p.id === identifier
-        );
+        const isCode = /^\d{6}$/.test(identifier.trim());
+
+        let matchedReg: Registration | undefined;
+        let participant: Participant | undefined;
+
+        if (isCode) {
+          matchedReg = regs.find((r) => r.signInCode === identifier.trim());
+          if (matchedReg) {
+            participant = get().getParticipant(matchedReg.participantId);
+          }
+        }
+
+        if (!matchedReg) {
+          participant = get().participants.find(
+            (p) => p.phone === identifier || p.phone === phone || p.name === identifier || p.id === identifier
+          );
+          if (participant) {
+            matchedReg = regs.find((r) => r.participantId === participant!.id);
+          }
+        }
+
         if (!participant) {
+          if (isCode) return { success: false, message: '签到码错误，请核对后重试' };
           return { success: false, message: '未找到该参与者，可选择现场登记' };
         }
-        const reg = regs.find((r) => r.participantId === participant.id);
-        if (!reg) {
+        if (!matchedReg) {
           return { success: false, participant, message: '该用户未报名本次活动' };
         }
-        const existing = get().checkIns.find((c) => c.registrationId === reg.id);
+        const existing = get().checkIns.find((c) => c.registrationId === matchedReg!.id);
         if (existing) {
-          return { success: false, participant, message: '该用户已签到，请勿重复操作' };
+          return {
+            success: false,
+            participant,
+            message: isCode
+              ? `该签到码已使用过（${formatTime(existing.checkedInAt)}已签到）`
+              : '该用户已签到，请勿重复操作',
+          };
         }
-        if (reg.status === 'cancelled') {
+        if (matchedReg.status === 'cancelled') {
           return { success: false, participant, message: '报名已取消' };
         }
-        get().manualCheckIn(reg.id);
-        return { success: true, participant, message: `欢迎 ${participant.name}，签到成功！` };
+        if (matchedReg.status === 'waitlist') {
+          return {
+            success: false,
+            participant,
+            message: '目前仍为候补状态，如有空位将自动补位，暂无法签到',
+          };
+        }
+        const usedCode = isCode ? identifier.trim() : undefined;
+        get().manualCheckIn(matchedReg.id, method, usedCode);
+        return {
+          success: true,
+          participant,
+          message: `欢迎 ${participant.name}，签到成功！座位号 ${(regs.indexOf(matchedReg!) % 30) + 1}`,
+        };
       },
 
-      manualCheckIn: (registrationId) => {
+      manualCheckIn: (registrationId, method = 'manual', codeUsed?: string) => {
         const reg = get().registrations.find((r) => r.id === registrationId);
         if (!reg) return false;
         const existing = get().checkIns.find((c) => c.registrationId === registrationId);
@@ -310,7 +462,8 @@ export const useAppStore = create<AppState>()(
           eventId: reg.eventId,
           participantId: reg.participantId,
           checkedInAt: new Date().toISOString(),
-          checkInMethod: 'manual',
+          checkInMethod: method,
+          codeUsed,
         };
         set({
           checkIns: [...get().checkIns, record],
@@ -351,6 +504,7 @@ export const useAppStore = create<AppState>()(
               eventId,
               participantId: participant.id,
               status: 'checked_in',
+              signInCode: generateSignInCode(eventId, participant.id),
               customFields: data,
               registeredAt: now,
             },
@@ -478,17 +632,21 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      addFeedback: (eventId, participantId, rating, content, keywords) => {
+      addFeedback: (data) => {
         set({
           feedbacks: [
             ...get().feedbacks,
             {
               id: 'fb_' + uid(),
-              eventId,
-              participantId,
-              rating,
-              content,
-              keywords,
+              eventId: data.eventId,
+              participantId: data.participantId,
+              registrationId: data.registrationId,
+              rating: data.rating,
+              content: data.content || '',
+              keywords: data.keywords || data.tags || [],
+              tags: data.tags,
+              suggestions: data.suggestions,
+              wouldRecommend: data.wouldRecommend,
               submittedAt: new Date().toISOString(),
             },
           ],

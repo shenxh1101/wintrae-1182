@@ -58,10 +58,14 @@ export interface Registration {
   participantId: string;
   status: RegistrationStatus;
   waitlistPosition?: number;
+  signInCode: string;
+  registrationFee?: number;
   customFields: Record<string, string>;
   registeredAt: string;
   cancelledAt?: string;
   cancelReason?: string;
+  cancelFeeApplied?: boolean;
+  cancelFeeAmount?: number;
   promotedFromWaitlistAt?: string;
 }
 
@@ -73,6 +77,7 @@ export interface CheckInRecord {
   checkedInAt: string;
   checkInMethod: CheckInMethod;
   operatorId?: string;
+  codeUsed?: string;
 }
 
 export interface Notification {
@@ -98,6 +103,7 @@ export interface Notification {
 export interface BlacklistEntry {
   id: string;
   participantId: string;
+  phone?: string;
   reason: string;
   blockedAt: string;
   expiresAt?: string;
@@ -108,9 +114,13 @@ export interface Feedback {
   id: string;
   eventId: string;
   participantId: string;
+  registrationId?: string;
   rating: number;
   content: string;
   keywords: string[];
+  tags?: string[];
+  suggestions?: string;
+  wouldRecommend?: boolean;
   submittedAt: string;
 }
 

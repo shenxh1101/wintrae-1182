@@ -10,8 +10,18 @@ import { Notifications } from './pages/events/detail/Notifications';
 import { Review } from './pages/events/detail/Review';
 import { Blacklist } from './pages/Blacklist';
 import { TagManagement } from './pages/Tags';
+import { PublicSignup } from './pages/public/PublicSignup';
+import { PublicFeedback } from './pages/public/PublicFeedback';
 
 export const router = createBrowserRouter([
+  {
+    path: '/register/:eventId',
+    element: <PublicSignup />,
+  },
+  {
+    path: '/feedback/:eventId',
+    element: <PublicFeedback />,
+  },
   {
     path: '/',
     element: <AppLayout />,

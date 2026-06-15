@@ -3,14 +3,41 @@ import { detailNavItems } from './Sidebar';
 import { useAppStore } from '@/store/useAppStore';
 import { EventStatusBadge } from '@/components/ui/Badges';
 import { formatDate, formatTime, weekdayName } from '@/utils/date';
-import { BookOpen, MapPin, Users, ArrowLeft, Copy, Edit3, Share2 } from 'lucide-react';
+import {
+  BookOpen,
+  MapPin,
+  Users,
+  ArrowLeft,
+  Copy,
+  Edit3,
+  Share2,
+  Link2,
+  MessageSquareText,
+  CheckCircle2,
+} from 'lucide-react';
 import clsx from 'clsx';
+import { useState } from 'react';
 
 export function EventDetailLayout() {
   const { id } = useParams();
   const navigate = useNavigate();
   const event = useAppStore((s) => s.getEvent(id!));
   const duplicateEvent = useAppStore((s) => s.duplicateEvent);
+  const [copyTip, setCopyTip] = useState<string | null>(null);
+
+  const copy = async (url: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyTip(label + '已复制');
+      setTimeout(() => setCopyTip(null), 2000);
+    } catch {
+      setCopyTip('复制失败，请手动复制');
+      setTimeout(() => setCopyTip(null), 2500);
+    }
+  };
+
+  const signupUrl = `${window.location.origin}/register/${id}`;
+  const feedbackUrl = `${window.location.origin}/feedback/${id}`;
 
   if (!event) {
     return (
@@ -59,24 +86,57 @@ export function EventDetailLayout() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button className="btn-secondary !bg-white/10 !border-white/20 !text-white hover:!bg-white/20 hover:!border-white/30">
+            <div className="flex items-center gap-2 flex-wrap relative">
+              {copyTip && (
+                <div className="absolute -bottom-10 right-0 z-20 px-3.5 py-1.5 rounded-lg bg-espresso-800 text-white text-sm shadow-lift flex items-center gap-1.5 animate-slide-up whitespace-nowrap">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                  {copyTip}
+                </div>
+              )}
+              <button
+                onClick={() => copy(signupUrl, '报名链接')}
+                className="btn-secondary !bg-white/10 !border-white/20 !text-white hover:!bg-white/20 hover:!border-white/30"
+                title="复制书友报名链接"
+              >
+                <Link2 className="w-4 h-4" />
+                报名链接
+              </button>
+              {event.status === 'ongoing' || event.status === 'completed' ? (
+                <button
+                  onClick={() => copy(feedbackUrl, '反馈链接')}
+                  className="btn-secondary !bg-white/10 !border-white/20 !text-white hover:!bg-white/20 hover:!border-white/30"
+                  title="复制书友反馈收集链接"
+                >
+                  <MessageSquareText className="w-4 h-4" />
+                  反馈链接
+                </button>
+              ) : null}
+              <button
+                onClick={() => {
+                  const shareText = `【${event.title}】报名链接：${signupUrl}`;
+                  copy(shareText, '分享文案');
+                }}
+                className="btn-secondary !bg-white/10 !border-white/20 !text-white hover:!bg-white/20 hover:!border-white/30"
+              >
                 <Share2 className="w-4 h-4" />
                 分享
               </button>
               <button
                 onClick={() => {
                   const nid = duplicateEvent(event.id);
-                  navigate(`/events`);
+                  navigate(`/events/${nid}/edit`);
                 }}
                 className="btn-secondary !bg-white/10 !border-white/20 !text-white hover:!bg-white/20 hover:!border-white/30"
               >
                 <Copy className="w-4 h-4" />
                 复制活动
               </button>
-              <button className="btn-primary !bg-amber-400 !text-espresso-800 hover:!bg-amber-300">
+              <button
+                onClick={() => navigate(`/events/${event.id}/edit`)}
+                className="btn-primary !bg-amber-400 !text-espresso-800 hover:!bg-amber-300"
+              >
                 <Edit3 className="w-4 h-4" />
-                编辑
+                编辑活动
               </button>
             </div>
           </div>

@@ -9,6 +9,7 @@ import type {
   ParticipantTag,
   FormField,
 } from '../types';
+import { generateSignInCode } from './date';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -157,6 +158,7 @@ events.forEach((ev) => {
       participantId: p.id,
       status,
       waitlistPosition: status === 'waitlist' ? (i - ev.currentConfirmed + 1) : undefined,
+      signInCode: generateSignInCode(ev.id, p.id, Math.floor(i * 31 + 7)),
       customFields: {
         name: p.name,
         phone: p.phone,
@@ -261,6 +263,7 @@ const blacklist: BlacklistEntry[] = [
   {
     id: 'b1',
     participantId: 'p18',
+    phone: participants.find((p) => p.id === 'p18')?.phone,
     reason: '连续3次报名未到场且未提前取消',
     blockedAt: daysFromNow(-60),
     blockedBy: 'system',
@@ -268,10 +271,19 @@ const blacklist: BlacklistEntry[] = [
   {
     id: 'b2',
     participantId: 'p25',
+    phone: participants.find((p) => p.id === 'p25')?.phone,
     reason: '活动现场扰乱秩序，经劝阻无效',
     blockedAt: daysFromNow(-20),
     expiresAt: daysFromNow(70),
     blockedBy: '店员-小王',
+  },
+  {
+    id: 'b3',
+    participantId: 'p33',
+    phone: participants.find((p) => p.id === 'p33')?.phone,
+    reason: '活动现场扰乱秩序，经劝阻无效',
+    blockedAt: daysFromNow(-30),
+    blockedBy: '店员-小李',
   },
 ];
 

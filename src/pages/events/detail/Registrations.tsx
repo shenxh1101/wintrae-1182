@@ -23,6 +23,9 @@ import {
   Sparkles,
   Eye,
   UserCog,
+  Ticket,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { RegistrationStatus, FormField } from '@/types';
 import clsx from 'clsx';
@@ -45,6 +48,8 @@ export function Registrations() {
   const isBlacklisted = useAppStore((s) => s.isBlacklisted);
   const tags = useAppStore((s) => s.tags);
   const updateStatus = useAppStore((s) => s.updateRegistrationStatus);
+  const evaluateCancel = useAppStore((s) => s.evaluateCancelRule);
+  const doCancel = useAppStore((s) => s.cancelRegistration);
   const promote = useAppStore((s) => s.promoteFromWaitlist);
   const addToBlacklist = useAppStore((s) => s.addToBlacklist);
   const addParticipantTags = useAppStore((s) => s.addParticipantTags);
@@ -55,6 +60,18 @@ export function Registrations() {
   const [selected, setSelected] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [tagDialog, setTagDialog] = useState<string | null>(null);
+  const [cancelDialog, setCancelDialog] = useState<{
+    regId: string;
+    info?: {
+      allowed: boolean;
+      freeCancel?: boolean;
+      feeApplied?: boolean;
+      feePercent?: number;
+      message: string;
+    } | null;
+  } | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
 
   const fields: FormField[] = event?.formFields || [];
 
@@ -194,6 +211,12 @@ export function Registrations() {
                     </th>
                   ))}
                   <th className="px-4 py-3 text-left text-xs font-medium text-espresso-400 uppercase tracking-wider">标签</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-espresso-400 uppercase tracking-wider">
+                    <span className="inline-flex items-center gap-1">
+                      <Ticket className="w-3 h-3" />
+                      签到码
+                    </span>
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-espresso-400 uppercase tracking-wider">报名时间</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-espresso-400 uppercase tracking-wider">状态</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-espresso-400 uppercase tracking-wider w-16"></th>
@@ -272,6 +295,20 @@ export function Registrations() {
                           </button>
                         </div>
                       </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={clsx(
+                            'inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-mono text-sm font-semibold tracking-widest',
+                            r.status === 'checked_in'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 line-through opacity-60'
+                              : r.status === 'cancelled'
+                              ? 'bg-paper-100 text-espresso-300 border border-paper-200 line-through'
+                              : 'bg-amber-50 text-espresso-800 border border-amber-200'
+                          )}
+                        >
+                          {r.status === 'cancelled' ? '------' : r.signInCode}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-sm text-espresso-500 whitespace-nowrap">
                         {formatRelative(r.registeredAt)}
                         <p className="text-[11px] text-espresso-300 mt-0.5">{formatDateTime(r.registeredAt)}</p>
@@ -307,7 +344,12 @@ export function Registrations() {
                               <MenuItem
                                 icon={UserX}
                                 label="取消报名"
-                                onClick={() => { updateStatus(r.id, 'cancelled'); setMenuOpen(null); }}
+                                onClick={() => {
+                                  const info = evaluateCancel(r.id);
+                                  setCancelDialog({ regId: r.id, info });
+                                  setCancelReason('');
+                                  setMenuOpen(null);
+                                }}
                               />
                             )}
                             <MenuItem
@@ -348,6 +390,138 @@ export function Registrations() {
       )}
 
       {showAdd && <AddDialog eventId={id!} onClose={() => setShowAdd(false)} />}
+
+      {cancelDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-espresso-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-lift overflow-hidden animate-slide-up">
+            <div className="px-6 py-5 border-b border-paper-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-serif text-xl font-semibold text-espresso-800">取消报名确认</h3>
+                <p className="text-sm text-espresso-400 mt-1">
+                  {getParticipant(
+                    regs.find((r) => r.id === cancelDialog.regId)?.participantId || ''
+                  )?.name || '该书友'}
+                </p>
+              </div>
+              <button
+                onClick={() => setCancelDialog(null)}
+                className="p-2 rounded-lg hover:bg-paper-100 text-espresso-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div
+                className={clsx(
+                  'p-4 rounded-xl border-2 flex gap-3',
+                  cancelDialog.info?.allowed === false
+                    ? 'bg-red-50 border-red-200'
+                    : cancelDialog.info?.freeCancel
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : 'bg-amber-50 border-amber-200'
+                )}
+              >
+                <div
+                  className={clsx(
+                    'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center',
+                    cancelDialog.info?.allowed === false
+                      ? 'bg-red-100 text-red-600'
+                      : cancelDialog.info?.freeCancel
+                      ? 'bg-emerald-100 text-emerald-600'
+                      : 'bg-amber-100 text-amber-600'
+                  )}
+                >
+                  {cancelDialog.info?.allowed === false ? (
+                    <AlertTriangle className="w-5 h-5" />
+                  ) : cancelDialog.info?.freeCancel ? (
+                    <Check className="w-5 h-5" />
+                  ) : (
+                    <Info className="w-5 h-5" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={clsx(
+                      'text-sm font-medium mb-1',
+                      cancelDialog.info?.allowed === false
+                        ? 'text-red-700'
+                        : cancelDialog.info?.freeCancel
+                        ? 'text-emerald-700'
+                        : 'text-amber-700'
+                    )}
+                  >
+                    {cancelDialog.info?.freeCancel ? '✅ 免费取消范围内' : cancelDialog.info?.allowed === false ? '⚠️ 无法取消' : '💰 需扣除违约金'}
+                  </p>
+                  <p className="text-sm text-espresso-600 leading-relaxed">{cancelDialog.info?.message}</p>
+                  {cancelDialog.info?.feeApplied && (
+                    <div className="mt-3 pt-3 border-t border-amber-200/60">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-espresso-500">扣除比例</span>
+                        <span className="font-semibold text-red-600">{cancelDialog.info.feePercent}%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {cancelDialog.info?.allowed && (
+                <div>
+                  <label className="block text-sm font-medium text-espresso-600 mb-2">取消原因（选填）</label>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    rows={2}
+                    placeholder="如：临时有事 / 时间冲突..."
+                    className="input-base resize-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-paper-50 border-t border-paper-200 flex justify-end gap-2">
+              <button onClick={() => setCancelDialog(null)} className="btn-secondary">
+                取消
+              </button>
+              {cancelDialog.info?.allowed && (
+                <button
+                  onClick={() => {
+                    const res = doCancel(cancelDialog.regId, cancelReason || '');
+                    if ((res as any).applied) {
+                      setToast({ type: 'success', message: (res as any).message });
+                    } else {
+                      setToast({ type: 'warning', message: (res as any).message });
+                    }
+                    setCancelDialog(null);
+                    setTimeout(() => setToast(null), 3500);
+                  }}
+                  className={clsx(
+                    'btn',
+                    cancelDialog.info?.feeApplied
+                      ? '!bg-red-500 hover:!bg-red-600 !text-white'
+                      : 'btn-primary'
+                  )}
+                >
+                  {cancelDialog.info?.feeApplied ? '确认并扣除违约金' : '确认取消报名'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          className={clsx(
+            'fixed top-6 right-6 z-50 px-5 py-3.5 rounded-xl shadow-lift border animate-slide-up',
+            toast.type === 'success' && 'bg-emerald-50 border-emerald-200 text-emerald-800',
+            toast.type === 'warning' && 'bg-amber-50 border-amber-200 text-amber-800',
+            toast.type === 'error' && 'bg-red-50 border-red-200 text-red-800'
+          )}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }
