@@ -46,7 +46,7 @@ export function CheckIn() {
   const alreadyChecked = regs.filter((r) => r.status === 'checked_in').length;
   const waitlistChecked = checkins.filter((c) => {
     const r = regs.find((rr) => rr.id === c.registrationId);
-    return r?.status === 'checked_in' && useAppStore.getState().getParticipant(c.participantId);
+    return r && (r.status === 'waitlist' || r.promotedFromWaitlistAt);
   }).length;
   const attendanceRate = totalConfirmed > 0 ? Math.round((alreadyChecked / totalConfirmed) * 100) : 0;
   const notYet = totalConfirmed - alreadyChecked;
@@ -120,16 +120,7 @@ export function CheckIn() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          icon={UserCheck}
-          label="已签到"
-          value={alreadyChecked}
-          accent="emerald"
-          sub={`候补到场 ${checkins.filter(c => {
-            const r = regs.find(rr => rr.id === c.registrationId);
-            return r?.waitlistPosition !== undefined;
-          }).length} 人`}
-        />
+        <StatCard icon={UserCheck} label="已签到" value={alreadyChecked} accent="emerald" sub={`候补到场 ${waitlistChecked} 人`} />
         <StatCard icon={Users} label="待签到" value={notYet} accent="ink" sub={`含候补 ${regs.filter(r => r.status === 'waitlist').length} 人`} />
         <StatCard
           icon={Zap}

@@ -64,6 +64,8 @@ export function Review() {
   const noShow = regs.filter((r) => r.status === 'no_show').length;
   const cancelled = regs.filter((r) => r.status === 'cancelled').length;
   const waitlist = regs.filter((r) => r.status === 'waitlist').length;
+  const waitlistConverted = regs.filter((r) => r.promotedFromWaitlistAt && r.status === 'checked_in').length;
+  const waitlistTotal = regs.filter((r) => r.status === 'waitlist' || r.promotedFromWaitlistAt).length;
   const attendanceRate = confirmed > 0 ? Math.round((checked / confirmed) * 100) : 0;
 
   const avgRating = feedbacks.length > 0
@@ -117,10 +119,11 @@ export function Review() {
   }, [feedbacks]);
 
   const pieData = [
-    { name: '已签到', value: checked, color: '#10B981' },
+    { name: '正式签到', value: checked - waitlistConverted, color: '#10B981' },
+    { name: '候补到场', value: waitlistConverted, color: '#E8A87C' },
     { name: '未到场', value: noShow, color: '#EF4444' },
-    { name: '候补到场', value: checkins.filter((c) => regs.find((r) => r.id === c.registrationId)?.waitlistPosition).length, color: '#E8A87C' },
-    { name: '取消', value: cancelled, color: '#9D8A74' },
+    { name: '候补未补位', value: waitlist, color: '#FCD34D' },
+    { name: '已取消', value: cancelled, color: '#9D8A74' },
   ];
 
   const topParticipants = regs
@@ -303,7 +306,7 @@ export function Review() {
                 <KPI label="到场率" value={`${attendanceRate}%`} target={80} />
                 <KPI label="反馈回收率" value={`${feedbackRate}%`} target={50} />
                 <KPI label="好评率" value={feedbacks.length ? `${Math.round(((feedbacks.filter(f => f.rating >= 4).length) / feedbacks.length) * 100)}%` : '—'} target={80} />
-                <KPI label="候补转化率" value={waitlist > 0 ? `${Math.round((checkins.filter(c => regs.find(r => r.id === c.registrationId)?.waitlistPosition).length / waitlist) * 100)}%` : '—'} target={30} />
+                <KPI label="候补转化率" value={waitlistTotal > 0 ? `${Math.round((waitlistConverted / waitlistTotal) * 100)}%` : '—'} target={30} />
               </div>
             </div>
           </div>
